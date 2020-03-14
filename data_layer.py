@@ -3,8 +3,6 @@ import numpy as np, cv2, os, json, random, math, logging, time
 from easydict import EasyDict as edict
 from config import FLAGS, logger
 
-
-
 class data_layer_base(object):
     def __init__(self, FLAGS, phase):
         self.FLAGS = FLAGS
