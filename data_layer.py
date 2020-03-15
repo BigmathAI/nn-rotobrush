@@ -25,7 +25,6 @@ class data_layer_base(object):
 
         self.status = self.init_status()
         self.last_batch = None
-        self.last_batch_valid_length = None
 
     def preload(self, fd_npy):
         fnames_npy = fp.dir(fd_npy, '.npy')
@@ -114,34 +113,21 @@ class data_layer_base(object):
     def _pick_up_exact(self, s): # <= pick up a batch, without update any status
         assert s < self.data_length, 'assert s < self.data_length'
         e = min(self.data_length, s + self.BS)
-        valid_length = e - s
         rst = self.load_raw_and_processing(s, e)
-        if e - s != self.BS:
-            n = self.BS - valid_length
-            if type(rst) == tuple:
-                out = []
-                for r in rst:
-                    tmp = np.zeros([n] + list(r.shape[1:]), np.uint8)
-                    out += [np.concatenate((r, tmp), axis=0)]
-                rst = tuple(out)
-            else:
-                tmp = np.zeros([n] + list(rst.shape[1:]), np.uint8)
-                rst = np.concatenate((rst, tmp), axis=0)
-        return rst, valid_length
+        return rst
 
     def exact_batch(self, s):
-        self.last_batch, self.last_batch_valid_length = rst = self._pick_up_exact(s)
+        self.last_batch = rst = self._pick_up_exact(s)
         self.status.iteration += 1
         return rst
 
     def prev_batch(self):
         if self.last_batch is not None:
             rst = self.last_batch
-            valid_length = self.last_batch_valid_length
             self.status.iteration += 1
         else:
-            rst, valid_length = self.crt_batch()
-        return rst, valid_length
+            rst = self.crt_batch()
+        return rst
 
     def crt_batch(self):
         assert self.status.start_idx < self.data_length, 'self.status.start_idx < self.data_length'
@@ -175,4 +161,9 @@ class data_layer_2d(data_layer_base):
         return data_layer_base.load_raw_from_npy(self, s, e)
 
     def prepare_data_to_feed(self, raw_data_batch):
-        return raw_data_batch
+        dl_in_image = raw_data_batch[:,::4,::4,:3]
+        dl_gt_label = raw_data_batch[:,::4,::4,3]
+        if len(dl_gt_label.shape) == 3:
+            dl_gt_label = np.expand_dims(dl_gt_label, 3)
+
+        return (dl_in_image, dl_gt_label)

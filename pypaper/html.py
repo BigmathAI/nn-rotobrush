@@ -17,20 +17,21 @@ class Figure(object):
 
 class HtmlWriter(object):
     HtmlFlags = edict({
-        'DisplayReportTitle': True,
+        'DisplayReportTime': False,
+        'DisplayReportTitle': False,
         'DisplayFileName': True,
         'DisplayFigureCaption': True,
         'DisplayTagVertically': False,
         # ----------------------------------------------------------------------------------------------
         'ReportTitle': '',
-        'FontSize': 18,
+        'FontSize': 14,
         'FontFace': 'Microsoft YaHei',
         'ColumnWidth': 320,
         'FigureCaptionFormat': '%7.3f',
-        'CaptionDataFilename':  'EvalMatrix.npy',
+        'CaptionDataFilename': 'EvalMatrix.npy',
         'MediaType': 'Image',  # ['Image', 'Video']
         'Transpose': False,
-        'NumberOfSamplesPerPage': 200,
+        'NumberOfSamplesPerPage': 0,
         'UseNumAsSampleID': True,  # [True: number, False: alphabet]
         'MaxNumOfSamples': 1e9,
     })

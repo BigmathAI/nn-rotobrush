@@ -1,5 +1,8 @@
 import tensorflow as tf
 import pytoolkit.tf_funcs as tfx
+import pytoolkit.files as fp
+import pypaper.html as pyhtml
+import os, cv2
 
 def to_float_tensor(batch):
     batch = tf.cast(batch, tf.float32)
@@ -40,3 +43,16 @@ def get_valid_batch(batch, valid_len, name):
     ndims = len(shape)
     out = tf.slice(batch, [0] * ndims, [valid_len] + [-1] * (ndims - 1), name=name)
     return out
+
+#-----------------------------------------------------------------------------------------------------------------------
+def draw_ims(draw_vals, fdout, batch_id=0):
+    title_to_path = {}
+    for title, ims in draw_vals.items():
+        sub_fd = fp.mkdir(os.path.join(fdout, title))
+        for i, im in enumerate(ims):
+            fname = os.path.join(sub_fd, 'batch{:04d}_{:04d}_[{}].jpg'.format(batch_id, i, title))
+            cv2.imwrite(fname, im, [cv2.IMWRITE_JPEG_QUALITY, 100])
+        title_to_path[title] = title
+    hw = pyhtml.HtmlWriter(fdout, title_to_path)
+    hw.Run()
+
