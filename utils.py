@@ -3,6 +3,7 @@ import pytoolkit.tf_funcs as tfx
 import pytoolkit.files as fp
 import pypaper.html as pyhtml
 import os, cv2
+import numpy as np
 
 def to_float_tensor(batch):
     batch = tf.cast(batch, tf.float32)
@@ -27,7 +28,7 @@ def conv_layer_2d(im, chnls, rate, knls, stps, name,
         lconv = tfx.relu(lconv) if userelu else lconv
         return lconv
 
-def compute_lxloss(mask, rs, gt, name, mode):
+def compute_lxloss_old(mask, rs, gt, name, mode):
     assert mode == 'l2' or mode == 'l1', 'mode must be l2 or l1'
     func = tf.square if mode == 'l2' else tf.abs
     if mask is not None:
@@ -37,6 +38,15 @@ def compute_lxloss(mask, rs, gt, name, mode):
         return tf.identity(rst, name=name)
     else:
         return tf.reduce_mean(func(gt - rs), name=name)
+
+def compute_lxloss(wt, rs, gt, name, mode):
+    assert mode == 'l2' or mode == 'l1', 'mode must be l2 or l1'
+    func = tf.square if mode == 'l2' else tf.abs
+    ndims = len(rs.get_shape().as_list())
+    axis = np.arange(1, ndims)
+    loss_datum = tf.reduce_mean(func(gt - rs), axis=axis)
+    loss = tf.reduce_sum(loss_datum * wt) / (tf.reduce_sum(wt) + 1e-8)
+    return tf.identity(loss, name=name), tf.identity(loss_datum, name=name+'_datum')
 
 def get_valid_batch(batch, valid_len, name):
     shape = batch.get_shape().as_list()

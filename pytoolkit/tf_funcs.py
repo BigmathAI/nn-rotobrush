@@ -139,13 +139,19 @@ def tensors_in_checkpoint_file(filename, need_value=False):
     var_to_shape_map = reader.get_variable_to_shape_map()
     return [(key, shape, reader.get_tensor(key) if need_value else None) for key, shape in sorted(var_to_shape_map.items())]
 
-def average_gradients(tower_grads):
+def average_gradients(tower_grads, tower_wts=None):
     average_grads = []
     for grad_and_vars in zip(*tower_grads):
         grads = [g for g, _ in grad_and_vars]
         if grads[0] is not None:
-            grad = tf.stack(grads, 0)
-            grad = tf.reduce_mean(grad, 0)
+            if tower_wts is None:
+                grad = tf.stack(grads, 0)
+                grad = tf.reduce_mean(grad)
+            else:
+                grads = [g * wt for g, wt in zip(grads, tower_wts)]
+                grad = tf.stack(grads, 0)
+                grad = tf.reduce_sum(grad, 0)
+                grad /= (tf.reduce_sum(tower_wts) + 1e-8)
         else:
             grad = None
         v = grad_and_vars[0][1]

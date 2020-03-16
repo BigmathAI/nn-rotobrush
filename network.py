@@ -15,7 +15,7 @@ class CENet(object):
 
         self.ph_in_image    = tf.placeholder(tf.uint8,   shape=(BS, szh, szw, 3), name='ph_in_image')
         self.ph_gt_image    = tf.placeholder(tf.uint8,   shape=(BS, szh, szw, 1), name='ph_gt_image')
-        self.ph_valid_len   = tf.placeholder(tf.int32,   shape=None,              name='ph_valid_len')
+        self.ph_datum_wt    = tf.placeholder(tf.float32, shape=(BS),              name='ph_datum_wt')
         self.ph_lr          = tf.placeholder(tf.float32, shape=None,              name='ph_lr')
 
         self.optimizer      = tf.train.AdamOptimizer(learning_rate=self.ph_lr, beta1=0.9)
@@ -27,29 +27,32 @@ class CENet(object):
                 with tf.device('/gpu:%d' % gpu_id), tf.variable_scope('cpu_variables', reuse=gpu_id>0):
                     logger.info('branch: %d' % gpu_id)
                     start_idx = bs * gpu_id
-                    br_valid_len = tf.maximum(0, tf.minimum(start_idx + bs, self.ph_valid_len) - start_idx)
                     phs = [
                         tf.slice(self.ph_in_image, [start_idx, 0, 0, 0], [bs, -1, -1, -1], name='ph_in_image_br%d' % gpu_id),
                         tf.slice(self.ph_gt_image, [start_idx, 0, 0, 0], [bs, -1, -1, -1], name='ph_gt_image_br%d' % gpu_id),
-                        tf.identity(br_valid_len, name='ph_valid_len_br%d' % gpu_id),
+                        tf.slice(self.ph_datum_wt, [start_idx],          [bs],             name='ph_datum_wt_br%d' % gpu_id),
                     ]
                     self.branches[gpu_id] = CENet_Branch(FLAGS, phs, gpu_id, self.optimizer)
 
         self.out     = self.merge_results(self.branches)
         self.loss    = self.merge_losses(self.branches)
         self.optims  = self.merge_optims(self.branches)
-        self.summary = self.merge_summaries(self.loss, self.var['all_vars'])
+        self.summary = self.merge_summaries(self.loss, self.var.all_vars)
 
     def merge_results(self, brs):
         return edict({k: tf.concat([b.out[k] for b in brs], 0, name=k) for k in brs[0].out.keys()})
 
     def merge_losses(self, brs):
-        return edict({k: tf.identity(tf.reduce_sum([b.loss[k] * tf.cast(b.ph_valid_len, tf.float32) for b in brs])
-                                     / tf.cast(self.ph_valid_len, tf.float32), name=k)
-                      for k in brs[0].loss.keys()})
+        out = edict({})
+        for k in brs[0].loss.keys():
+            total_sum_loss = tf.reduce_sum([b.loss[k] * b.sum_wt for b in brs])
+            total_weights = tf.reduce_sum([b.sum_wt for b in brs])
+            v = tf.identity(total_sum_loss / (total_weights + 1e-8), name=k+'_loss')
+            out[k] = v
+        return out
 
     def merge_optims(self, brs):
-        phase_grad = edict({k : tfx.average_gradients_with_valid_lens([b.phase[k] for b in brs], [b.ph_valid_len for b in brs])
+        phase_grad = edict({k : tfx.average_gradients([b.phase[k] for b in brs], [b.sum_wt for b in brs])
                             for k in brs[0].phase.keys()})
         return edict({k : self.optimizer.apply_gradients(v) for k, v in phase_grad.items()})
 
@@ -77,11 +80,13 @@ class CENet_Branch(object):
 
         self.ph_in_image = utils.to_float_tensor(phs[0])
         self.ph_gt_image = utils.to_float_tensor(phs[1])
-        self.ph_valid_len = phs[2]
+        self.ph_datum_wt = phs[2]
+
+
 
         # G-Net
-        self.rs_ou_image_train, self.layers = self.G_Net_2D(self.ph_in_image, is_train=True, reuse=False)
-        self.rs_ou_image_valid, _           = self.G_Net_2D(self.ph_in_image, is_train=False, reuse=True)
+        self.rs_ou_image_train, self.layers = self.G_Net_2D_v1(self.ph_in_image, is_train=True, reuse=False)
+        self.rs_ou_image_valid, _           = self.G_Net_2D_v1(self.ph_in_image, is_train=False, reuse=True)
 
         # Loss
         self.loss   = self.compute_losses()
@@ -120,6 +125,34 @@ class CENet_Branch(object):
                                                'l%02d' % k, dcvs[k], usbn[k], is_train, usrl[k])]
             return tf.nn.tanh(layers[-1]), layers
 
+    def G_Net_2D_v1(self, im, is_train, reuse):
+        with tf.variable_scope('generator_im', reuse=reuse) as scope:
+            layers = []
+            input = im
+            chns = [64] + [128] * 2 + [256] * 9 + [128] * 2 + [64, 32, 3]
+            chns = [x // 8 for x in chns[:-1]] + [chns[-1]]
+            etas = [1] * 6 + [2, 4, 8, 16] + [1] * 7
+            kszs = [5] + [3] * 11 + [4, 3, 4, 3, 3]
+            stps = [1, 2, 1, 2] + [1] * 8 + [2, 1, 2, 1, 1]
+            dcvs = [False] * 12 + [True, False, True, False, False]
+            usbn = [True] * 16 + [False]
+            usrl = usbn
+            for k in range(17):
+                if k == 0:
+                    temp = input
+                elif k < 9:
+                    temp = layers[-1]
+                elif k < 15:
+                    temp = tf.concat([layers[-1], layers[15 - k]], axis=3)
+                else:
+                    temp = layers[-1]
+                layers += [utils.conv_layer_2d(temp, chns[k], etas[k], kszs[k], stps[k],
+                                               'l%02d' % k, dcvs[k], usbn[k], is_train, usrl[k])]
+            return tf.nn.tanh(layers[-1]), layers
+
+
+
+
     def collect_vars(self):
         t_vars   = [var for var in tf.global_variables() if 'VGG' not in var.name]
         vgg_vars = [var for var in tf.global_variables() if 'VGG' in var.name]
@@ -139,11 +172,11 @@ class CENet_Branch(object):
         return var
 
     def compute_losses(self):
-        rs_ou_image_train = utils.get_valid_batch(self.rs_ou_image_train, self.ph_valid_len, name='rs_ou_image_train_sliced')
-        ph_gt_image = utils.get_valid_batch(self.ph_gt_image, self.ph_valid_len, name='ph_gt_image_sliced')
+        self.sum_wt = tf.reduce_sum(self.ph_datum_wt)
 
-        l1_im = utils.compute_lxloss(None, rs_ou_image_train, ph_gt_image, name='l1loss_im', mode='l1')
-
+        l1_im, l1_im_datum = utils.compute_lxloss(self.ph_datum_wt,
+                                                  self.rs_ou_image_train,
+                                                  self.ph_gt_image, name='l1loss_im', mode='l1')
         loss = edict({
             'l1loss_im':            l1_im,
         })

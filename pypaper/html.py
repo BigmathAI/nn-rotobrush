@@ -54,7 +54,7 @@ class HtmlWriter(object):
         M = len(title_to_fnames)
         N = 0 if len(title_to_fnames) == 0 else len(self.GetDictFirstElem(title_to_fnames))
         N = min(N, self.HtmlFlags.MaxNumOfSamples)
-        assert N > 0, 'No Files Found ==> No HTML Generated!'
+        #assert N > 0, 'No Files Found ==> No HTML Generated!'
 
         self.FigureMatrix = np.zeros([M, N], dtype=Figure)
         for k, (title, fnames) in enumerate(title_to_fnames.items()):
@@ -91,6 +91,9 @@ class HtmlWriter(object):
 
         every = self.HtmlFlags.NumberOfSamplesPerPage
         every = self.NumOfSamples if every == 0 else every
+
+        if self.NumOfSamples == 0:
+            return
 
         for k in range(0, self.NumOfSamples, every):
             if every == self.NumOfSamples:

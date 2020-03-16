@@ -25,6 +25,7 @@ class data_layer_base(object):
 
         self.status = self.init_status()
         self.last_batch = None
+        logger.info('data length: {:>6s}: {:04d}'.format(self.phase, self.data_length))
 
     def preload(self, fd_npy):
         fnames_npy = fp.dir(fd_npy, '.npy')
@@ -87,6 +88,8 @@ class data_layer_base(object):
             'iteration':                0,
             'iter_cur_epoch':           0,
             'start_idx':                0,
+            #-----------------------------------------------------------------------------------------------------------
+            'perc':                     0,
         })
         return status
 
@@ -150,7 +153,11 @@ class data_layer_base(object):
         else:
             self.status.start_idx = e
             self.status.iter_cur_epoch += 1
+        self.status.perc = self.status.start_idx / self.data_length
         return rst
+    #-------------------------------------------------------------------------------
+    def num_iters_per_epoch(self):
+        return int(math.ceil(self.data_length / self.BS))
 
 #-----------------------------------------------------------------------------------
 class data_layer_2d(data_layer_base):
