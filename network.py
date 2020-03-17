@@ -179,6 +179,8 @@ class CENet_Branch(object):
                                                   self.ph_gt_image, name='l1loss_im', mode='l1')
         loss = edict({
             'l1loss_im':            l1_im,
+            'l2loss_im':            l1_im,
+            'xxloss_im':            l1_im,
         })
         return loss
 

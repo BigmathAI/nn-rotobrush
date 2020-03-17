@@ -24,6 +24,7 @@ class data_layer_base(object):
             self.random_shuffle()
 
         self.status = self.init_status()
+        self.prgbar = pyutils.ProgressBar(self.data_length, 5)
         self.last_batch = None
         logger.info('data length: {:>6s}: {:04d}'.format(self.phase, self.data_length))
 
@@ -102,11 +103,13 @@ class data_layer_base(object):
         try:
             with open(status_fname, 'r') as f:
                 self.status = edict(json.load(f))
+                self.prgbar.Restore(self.status.start_idx)
         except:
             logger.warning('No status file found, will create new')
 
     def reset(self):
         self.status = self.init_status()
+        self.prgbar.Reset()
         self.un_shuffle()
 
     def get_status(self):
@@ -140,7 +143,7 @@ class data_layer_base(object):
         s = np.random.randint(self.data_length)
         return self.exact_batch(s)
 
-    def next_batch(self):
+    def next_batch1(self):
         rst = self.crt_batch()
         s = self.status.start_idx
         e = min(self.data_length, s + self.BS)
@@ -148,13 +151,34 @@ class data_layer_base(object):
             self.status.start_idx = 0
             self.status.epoch += 1
             self.status.iter_cur_epoch = 0
+            self.prgbar.Reset()
             if self.phase == 'train':
                 self.random_shuffle()
         else:
             self.status.start_idx = e
             self.status.iter_cur_epoch += 1
+            self.prgbar.Update(e - s)
         self.status.perc = self.status.start_idx / self.data_length
         return rst
+
+    def next_batch(self):
+        if self.status.start_idx == self.data_length:
+            self.status.start_idx = 0
+            self.status.iter_cur_epoch = 0
+            self.prgbar.Reset()
+            if self.phase == 'train':
+                self.random_shuffle()
+        s = self.status.start_idx
+        e = min(self.data_length, s + self.BS)
+        rst = self.crt_batch()
+        self.status.start_idx = e
+        if e == self.data_length:
+            self.status.epoch += 1
+        self.status.iter_cur_epoch += 1
+        self.prgbar.Update(e - s)
+        self.status.perc = self.status.start_idx / self.data_length
+        return rst
+
     #-------------------------------------------------------------------------------
     def num_iters_per_epoch(self):
         return int(math.ceil(self.data_length / self.BS))

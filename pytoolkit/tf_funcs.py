@@ -159,19 +159,18 @@ def average_gradients(tower_grads, tower_wts=None):
         average_grads.append(grad_and_var)
     return average_grads
 
-def average_gradients_with_valid_lens(tower_grads, valid_lens):
-    average_grads = []
-    valid_lens = [tf.cast(vl, tf.float32) for vl in valid_lens]
-    for grad_and_vars in zip(*tower_grads):
-        grads = [g for g, _ in grad_and_vars]
-        if grads[0] is not None:
-            grads = [g * vl for g, vl in zip(grads, valid_lens)]
-            grad = tf.stack(grads, 0)
-            grad = tf.reduce_sum(grad, 0)
-            grad /= tf.reduce_sum(valid_lens)
-        else:
-            grad = None
-        v = grad_and_vars[0][1]
-        grad_and_var = (grad, v)
-        average_grads.append(grad_and_var)
-    return average_grads
+def restore_from_checkpoint(sess, ckpt_path, net_vars):
+    ckpt = tf.train.get_checkpoint_state(ckpt_path)
+    if ckpt and ckpt.model_checkpoint_path:
+        name_shape_values = tensors_in_checkpoint_file(ckpt.model_checkpoint_path)
+        matched_vars, unmatched_vars = [], []
+        for var in net_vars:
+            if (var.op.name, var.get_shape().as_list(), None) in name_shape_values:
+                matched_vars.append(var)
+            else:
+                unmatched_vars.append(var)
+        saver = tf.train.Saver(matched_vars)
+        saver.restore(sess, ckpt.model_checkpoint_path)
+        return ckpt.model_checkpoint_path, matched_vars, unmatched_vars
+    else:
+        return None, None, None

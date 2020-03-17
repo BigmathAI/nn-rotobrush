@@ -18,7 +18,7 @@ tf.flags.DEFINE_list('image_size',                      [128,128],  'size')
 
 tf.flags.DEFINE_integer('num_gpus',                     1,          'number of GPUs')
 tf.flags.DEFINE_integer('epoches',                      500,        'number of epoches')
-tf.flags.DEFINE_integer('eval_nums',                    10,         'the number of batch evaluated, -1 means all')
+tf.flags.DEFINE_integer('eval_nums',                    -1,         'the number of batch evaluated, -1 means all')
 
 tf.flags.DEFINE_float('lr',                             1e-5,       'learning rate')
 

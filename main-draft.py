@@ -1,20 +1,19 @@
 from pytoolkit.utils import ProgressBar
 import time, datetime
-pb = ProgressBar(1000)
+pb = ProgressBar(100)
+#pb.Restore(10)
 
 def foo():
-    for i in range(pb.GetTotal() * 2):
-        if i == pb.GetTotal():
-            pb.Reset()
-        pb.Update()
-        s = pb.GetBar()
-        print(s)
-        time.sleep(0.01)
+    last_line = None
+    for i in range(pb.GetTotal()):
+        pb.Update(1)
+        line = '{:02d} {}'.format(i, pb.GetBar())
+        if last_line is None:
+            print('',  end='\r{}'.format(line))
+            last_line = line
+        else:
+            print('', end='\r{}'.format(line))
+
+        time.sleep(0.1)
 
 foo()
-
-import tqdm
-
-for i in tqdm.tqdm(range(100000)):
-    a = 1
-    time.sleep(0.3)

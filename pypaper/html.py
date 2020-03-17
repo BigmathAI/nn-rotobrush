@@ -136,8 +136,7 @@ class HtmlWriter(object):
                 filenames[title] = fnames
             flens = [len(fnames) for k, fnames in filenames.items()]
             minlen = min(flens)
-            for k, fnames in filenames.items():
-                fnames = fnames[:minlen]
+            filenames = {k: fnames[:minlen] for k, fnames in filenames.items()}
             return filenames
         if MediaType == 'Image':
             return _get_filenames_helper(self.fd, self.TitleToFolder, ['.jpg', '.png', '.gif', '.tiff'])

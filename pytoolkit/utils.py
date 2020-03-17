@@ -35,12 +35,19 @@ def print_params(logger, FLAGS):
 
 def secs_to_time(sec):
     if sec is None:
-        return ''
+        return '-----'
     if int(sec / 3600) >= 1:
         fmt = '%H:%M:%S'
     else:
         fmt = '%M:%S'
     return time.strftime(fmt, time.gmtime(sec))
+
+def dict_to_string(loss_vals, max_per_line=2**31):
+    num_lines = int(math.ceil(len(loss_vals) / max_per_line))
+    lines = ['| '] * num_lines
+    for k, (key, val) in enumerate(loss_vals.items()):
+        lines[k // max_per_line] += '%15s: %10.4f | ' % (key, val)
+    return lines
 
 class ProgressBar(object):
     def __init__(self, total, len=10):
@@ -49,43 +56,48 @@ class ProgressBar(object):
         self.bar = ''
         self.Reset()
 
+    def perc(self):
+        return self.K / (self.Total + 1e-8)
+
     def GetTotal(self):
         return self.Total
 
     def GetBar(self):
         fmt = ':>{:d}d'.format(len(str(self.Total)))
         K = ('{' + fmt + '}').format(self.K)
-        status = '{:>5.1f}%{} {}/{:d} [{}<{}, {:>7.1f}it/s]'.format(self.perc * 100, self.bar, K,
+        status = '{:>5.1f}%{} {}/{:d} [{}<{}, {:>7.1f}it/s]'.format(self.perc() * 100, self.bar, K,
                                                                     self.Total,
                                                                     secs_to_time(self.time_cost),
                                                                     secs_to_time(self.time_left),
                                                                     self.freq)
         return status
 
-    def Update(self):
-        assert self.K < self.Total
+    def Update(self, delta):
+        assert delta > 0
+        newK = min(self.K + delta, self.Total)
+        delta = newK - self.K
         now = time.time()
         if self.last_time is not None:
-            self.time_cost = now - self.start_time
             dur = now - self.last_time
-            self.last_time = now
-            self.time_left = dur * (self.Total - 1 - self.K)
+            self.time_left = dur / (delta + 1e-8) * (self.Total - newK)
+            self.time_cost = now - self.start_time
             self.freq = 1.0 / (dur + 1e-8)
-        else:
             self.last_time = now
-            self.start_time = now
-
-        self.perc = self.K / (self.Total - 1 + 1e-8)
-        nb = int(round(self.perc * self.NUM_BLOCKS))
+        else:
+            self.start_time = self.last_time = now
+        self.K = newK
+        nb = int(round(self.perc() * self.NUM_BLOCKS))
         self.bar = '|' + '█' * nb + ' ' * (self.NUM_BLOCKS - nb) + '|'
-
-        self.K += 1
 
     def Reset(self):
         self.K = 0
         self.last_time = None
-        self.perc = 0
         self.time_left = None
         self.freq = -1
         self.start_time = None
-        self.time_cost = None
+        self.time_cost = 0
+        self.bar = '|' + ' ' * self.NUM_BLOCKS + '|'
+
+    def Restore(self, K):
+        assert K < self.Total, 'assert K < self.Total'
+        self.K = K
