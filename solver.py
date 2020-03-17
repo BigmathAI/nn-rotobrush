@@ -141,7 +141,7 @@ class solver_wrapper(object):
         return total_loss_vals
 
     def compute_crt_phase(self, status):
-        return 'l1loss_im'
+        return 'celoss_im'
 
     def extract_data_and_build_feed_dict(self, data_layer):
         batch_tuple = data_layer.next_batch()

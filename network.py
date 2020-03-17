@@ -85,8 +85,8 @@ class CENet_Branch(object):
 
 
         # G-Net
-        self.rs_ou_image_train, self.layers = self.G_Net_2D_v1(self.ph_in_image, is_train=True, reuse=False)
-        self.rs_ou_image_valid, _           = self.G_Net_2D_v1(self.ph_in_image, is_train=False, reuse=True)
+        self.rs_ou_image_train, self.layers = self.G_Net_2D_v2(self.ph_in_image, is_train=True, reuse=False)
+        self.rs_ou_image_valid, _           = self.G_Net_2D_v2(self.ph_in_image, is_train=False, reuse=True)
 
         # Loss
         self.loss   = self.compute_losses()
@@ -105,7 +105,7 @@ class CENet_Branch(object):
         with tf.variable_scope('generator_im', reuse=reuse) as scope:
             layers = []
             input = im
-            chns = [64] + [128] * 2 + [256] * 9 + [128] * 2 + [64, 32, 3]
+            chns = [64] + [128] * 2 + [256] * 9 + [128] * 2 + [64, 32, 1]
             etas = [1] * 6 + [2, 4, 8, 16] + [1] * 7
             kszs = [5] + [3] * 11 + [4, 3, 4, 3, 3]
             stps = [1, 2, 1, 2] + [1] * 8 + [2, 1, 2, 1, 1]
@@ -129,8 +129,8 @@ class CENet_Branch(object):
         with tf.variable_scope('generator_im', reuse=reuse) as scope:
             layers = []
             input = im
-            chns = [64] + [128] * 2 + [256] * 9 + [128] * 2 + [64, 32, 3]
-            chns = [x // 8 for x in chns[:-1]] + [chns[-1]]
+            chns = [64] + [128] * 2 + [256] * 9 + [128] * 2 + [64, 32, 1]
+            #chns = [x // 8 for x in chns[:-1]] + [chns[-1]]
             etas = [1] * 6 + [2, 4, 8, 16] + [1] * 7
             kszs = [5] + [3] * 11 + [4, 3, 4, 3, 3]
             stps = [1, 2, 1, 2] + [1] * 8 + [2, 1, 2, 1, 1]
@@ -150,8 +150,32 @@ class CENet_Branch(object):
                                                'l%02d' % k, dcvs[k], usbn[k], is_train, usrl[k])]
             return tf.nn.tanh(layers[-1]), layers
 
+    def G_Net_2D_v2(self, im, is_train, reuse):
+        with tf.variable_scope('generator_im', reuse=reuse) as scope:
+            layers = []
+            input = im
+            chns = [64] + [128] * 2 + [256] * 9 + [128] * 2 + [64, 32, 2]
+            chns = [x // 8 for x in chns[:-1]] + [chns[-1]]
+            etas = [1] * 6 + [2, 4, 8, 16] + [1] * 7
+            kszs = [5] + [3] * 11 + [4, 3, 4, 3, 3]
+            stps = [1, 2, 1, 2] + [1] * 8 + [2, 1, 2, 1, 1]
+            dcvs = [False] * 12 + [True, False, True, False, False]
+            usbn = [True] * 16 + [False]
+            usrl = usbn
+            for k in range(17):
+                if k == 0:
+                    temp = input
+                elif k < 9:
+                    temp = layers[-1]
+                elif k < 15:
+                    temp = tf.concat([layers[-1], layers[15 - k]], axis=3)
+                else:
+                    temp = layers[-1]
+                layers += [utils.conv_layer_2d(temp, chns[k], etas[k], kszs[k], stps[k],
+                                               'l%02d' % k, dcvs[k], usbn[k], is_train, usrl[k])]
 
-
+            layers += [tf.slice(tf.nn.softmax(layers[-1]) * 2.0 - 1.0, [0, 0, 0, 1], [-1, -1, -1, 1], name='segmented')]
+            return layers[-1], layers
 
     def collect_vars(self):
         t_vars   = [var for var in tf.global_variables() if 'VGG' not in var.name]
@@ -177,17 +201,21 @@ class CENet_Branch(object):
         l1_im, l1_im_datum = utils.compute_lxloss(self.ph_datum_wt,
                                                   self.rs_ou_image_train,
                                                   self.ph_gt_image, name='l1loss_im', mode='l1')
+
+        ce_im, ce_im_datum = utils.compute_celoss(self.ph_datum_wt,
+                                                  self.layers[-2],
+                                                  self.ph_gt_image, name='celoss_im')
+
         loss = edict({
             'l1loss_im':            l1_im,
-            'l2loss_im':            l1_im,
-            'xxloss_im':            l1_im,
+            'celoss_im':            ce_im,
         })
         return loss
 
     def optimize(self, optimizer):
         phases = edict({
             'l1loss_im': 'g_im_vars',
-            'l2loss_im': 'g_im_vars',
+            'celoss_im': 'g_im_vars',
             'g_loss_im': 'g_im_vars',
             'd_loss_im': 'd_im_vars',
         })

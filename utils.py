@@ -48,6 +48,16 @@ def compute_lxloss(wt, rs, gt, name, mode):
     loss = tf.reduce_sum(loss_datum * wt) / (tf.reduce_sum(wt) + 1e-8)
     return tf.identity(loss, name=name), tf.identity(loss_datum, name=name+'_datum')
 
+def compute_celoss(wt, logits, gt, name):
+    ndims = len(logits.get_shape().as_list())
+    axis = np.arange(1, ndims - 1)
+    gt = tf.cast(tf.greater(gt, 0), tf.int32)
+    gt = tf.squeeze(gt)
+    loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=gt, logits=logits)
+    loss_datum = tf.reduce_mean(loss, axis=axis)
+    loss = tf.reduce_sum(loss_datum * wt) / (tf.reduce_sum(wt) + 1e-8)
+    return tf.identity(loss, name=name), tf.identity(loss_datum, name=name+'_datum')
+
 def get_valid_batch(batch, valid_len, name):
     shape = batch.get_shape().as_list()
     ndims = len(shape)

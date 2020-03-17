@@ -1,0 +1,1 @@
+rlaunch --cpu=1 --gpu=1 --memory=10240 -- python3 main.py

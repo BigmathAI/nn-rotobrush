@@ -192,8 +192,8 @@ class data_layer_2d(data_layer_base):
         return data_layer_base.load_raw_from_npy(self, s, e)
 
     def prepare_data_to_feed(self, raw_data_batch):
-        dl_in_image = raw_data_batch[:,::4,::4,:3]
-        dl_gt_label = raw_data_batch[:,::4,::4,3]
+        dl_in_image = raw_data_batch[:,::2,::2,:3]
+        dl_gt_label = raw_data_batch[:,::2,::2,3]
         if len(dl_gt_label.shape) == 3:
             dl_gt_label = np.expand_dims(dl_gt_label, 3)
 
