@@ -13,10 +13,15 @@ class CENet(object):
 
         BS = bs * nG
 
-        self.ph_in_image    = tf.placeholder(tf.uint8,   shape=(BS, szh, szw, 3), name='ph_in_image')
-        self.ph_gt_image    = tf.placeholder(tf.uint8,   shape=(BS, szh, szw, 1), name='ph_gt_image')
-        self.ph_datum_wt    = tf.placeholder(tf.float32, shape=(BS),              name='ph_datum_wt')
-        self.ph_lr          = tf.placeholder(tf.float32, shape=None,              name='ph_lr')
+        #self.ph_in_image    = tf.placeholder(tf.uint8,   shape=(BS, szh, szw, 3), name='ph_in_image')
+        #self.ph_gt_image    = tf.placeholder(tf.uint8,   shape=(BS, szh, szw, 1), name='ph_gt_image')
+        #self.ph_datum_wt    = tf.placeholder(tf.float32, shape=(BS),              name='ph_datum_wt')
+        #self.ph_lr          = tf.placeholder(tf.float32, shape=None,              name='ph_lr')
+
+        self.ph_in_image     = tf.get_variable(name='ph_in_image', shape=(BS, szh, szw, 3), dtype=tf.uint8, trainable=False)
+        self.ph_gt_image     = tf.get_variable(name='ph_gt_image', shape=(BS, szh, szw, 1), dtype=tf.uint8, trainable=False)
+        self.ph_datum_wt     = tf.get_variable(name='ph_datum_wt', shape=(BS),              dtype=tf.float32, trainable=False)
+        self.ph_lr           = tf.get_variable(name='ph_lr',       shape=(),                dtype=tf.float32, trainable=False)
 
         self.optimizer      = tf.train.AdamOptimizer(learning_rate=self.ph_lr, beta1=0.9)
 
@@ -37,7 +42,7 @@ class CENet(object):
         self.out     = self.merge_results(self.branches)
         self.loss    = self.merge_losses(self.branches)
         self.optims  = self.merge_optims(self.branches)
-        self.summary = self.merge_summaries(self.loss, self.var.all_vars)
+        self.summary, self.phs_loss_valid = self.merge_summaries(self.loss, self.var.all_vars)
 
     def merge_results(self, brs):
         return edict({k: tf.concat([b.out[k] for b in brs], 0, name=k) for k in brs[0].out.keys()})
@@ -56,13 +61,33 @@ class CENet(object):
                             for k in brs[0].phase.keys()})
         return edict({k : self.optimizer.apply_gradients(v) for k, v in phase_grad.items()})
 
-    def merge_summaries(self, loss, var):
+    def merge_summaries0(self, loss, var):
         summary_loss = edict({k + '_summary': tf.summary.scalar(k, v) for k, v in loss.items()})
         summary_weights = edict()
         for v in var:
             name = v.op.name + '_summary'
             summary_weights.update({name: tf.summary.histogram(name, v)})
-        return edict({**summary_loss, **summary_weights})
+        summary_loss_valid = {}
+        for k, _ in loss.items():
+            ph_loss_valid = tf.placeholder(tf.float32, shape=None, name='ph_' + k + '_valid')
+            summary_loss_valid[k] = (ph_loss_valid, tf.summary.scalar(k + '_valid', ph_loss_valid))
+        return edict({**summary_loss, **summary_weights}), edict(summary_loss_valid)
+
+    def merge_summaries(self, loss, var):
+        summary_loss = edict()
+        phs_loss_valid = edict()
+        is_valid = tf.cast(tf.less(self.ph_lr, 0), tf.float32)
+        for k, v in loss.items():
+            ph_loss_valid = tf.get_variable(name='ph_'+k+'_valid',
+                                            shape=v.get_shape().as_list(), dtype=tf.float32, trainable=False)
+            vx = is_valid * ph_loss_valid + (1 - is_valid) * v
+            phs_loss_valid[k + '_ph_loss_valid'] = ph_loss_valid
+            summary_loss[k + '_summary'] = tf.summary.scalar(k, vx)
+        summary_weights = edict()
+        for v in var:
+            name = v.op.name + '_summary'
+            summary_weights.update({name: tf.summary.histogram(name, v)})
+        return edict({**summary_loss, **summary_weights}), phs_loss_valid
 
     @property
     def vgg_api(self):
@@ -89,8 +114,8 @@ class CENet_Branch(object):
         self.rs_ou_image_valid, _           = self.G_Net_2D_v2(self.ph_in_image, is_train=False, reuse=True)
 
         # Loss
-        self.loss   = self.compute_losses()
         self.var    = self.collect_vars()
+        self.loss   = self.compute_losses()
         self.phase  = self.optimize(optimizer)
 
         # Out
@@ -155,7 +180,7 @@ class CENet_Branch(object):
             layers = []
             input = im
             chns = [64] + [128] * 2 + [256] * 9 + [128] * 2 + [64, 32, 2]
-            chns = [x // 8 for x in chns[:-1]] + [chns[-1]]
+            #chns = [x // 8 for x in chns[:-1]] + [chns[-1]]
             etas = [1] * 6 + [2, 4, 8, 16] + [1] * 7
             kszs = [5] + [3] * 11 + [4, 3, 4, 3, 3]
             stps = [1, 2, 1, 2] + [1] * 8 + [2, 1, 2, 1, 1]
@@ -178,14 +203,14 @@ class CENet_Branch(object):
             return layers[-1], layers
 
     def collect_vars(self):
-        t_vars   = [var for var in tf.global_variables() if 'VGG' not in var.name]
-        vgg_vars = [var for var in tf.global_variables() if 'VGG' in var.name]
+        t_vars   = [var for var in tf.trainable_variables() if 'VGG' not in var.name]
+        vgg_vars = [var for var in tf.trainable_variables() if 'VGG' in var.name]
 
         g_vars_im = [var for var in t_vars if 'generator_im' in var.name]
         d_vars_im = [var for var in t_vars if 'discriminator_im' in var.name]
 
         assert len(g_vars_im) + len(d_vars_im) == len(t_vars), 'vars number inconsistent! (1)'
-        assert len(t_vars) + len(vgg_vars) == len(tf.global_variables()), 'vars number inconsistent! (2)'
+        assert len(t_vars) + len(vgg_vars) == len(tf.trainable_variables()), 'vars number inconsistent! (2)'
 
         var = edict({
             'all_vars':  t_vars,
@@ -206,18 +231,35 @@ class CENet_Branch(object):
                                                   self.layers[-2],
                                                   self.ph_gt_image, name='celoss_im')
 
+        P_R_IoU_FPR_F1_im, _ = utils.compute_IoU(self.ph_datum_wt,
+                                                 self.rs_ou_image_train,
+                                                 self.ph_gt_image, 0, name='seg_eval_im')
+
+        wtd_ce_im, wt_im_datum = utils.compute_weighted_celoss(self.ph_datum_wt,
+                                                               self.layers[-2],
+                                                               self.FLAGS.weight_ce,
+                                                               self.ph_gt_image, name='weighted_celoss_im')
+
+        weight_decay = self.FLAGS.weight_decay * utils.compute_weight_decay(self.var['g_im_vars'])
+
         loss = edict({
             'l1loss_im':            l1_im,
-            'celoss_im':            ce_im,
+            'celoss_im':            ce_im + weight_decay,
+            'wtd_celoss_im':        wtd_ce_im + weight_decay,
+            'precision':            P_R_IoU_FPR_F1_im[0],
+            'recall':               P_R_IoU_FPR_F1_im[1],
+            'IoU':                  P_R_IoU_FPR_F1_im[2],
+            'F1Score':              P_R_IoU_FPR_F1_im[4]
         })
         return loss
 
     def optimize(self, optimizer):
         phases = edict({
-            'l1loss_im': 'g_im_vars',
-            'celoss_im': 'g_im_vars',
-            'g_loss_im': 'g_im_vars',
-            'd_loss_im': 'd_im_vars',
+            'l1loss_im':        'g_im_vars',
+            'celoss_im':        'g_im_vars',
+            'wtd_celoss_im':    'g_im_vars',
+            'g_loss_im':        'g_im_vars',
+            'd_loss_im':        'd_im_vars',
         })
         phase_opts = edict({})
         logger.info('{:-^72}'.format('Experiment: {:2d} Phases'.format(len(phases))))

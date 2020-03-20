@@ -17,10 +17,10 @@ class Figure(object):
 
 class HtmlWriter(object):
     HtmlFlags = edict({
-        'DisplayReportTime': False,
+        'DisplayReportTime': True,
         'DisplayReportTitle': False,
-        'DisplayFileName': True,
-        'DisplayFigureCaption': True,
+        'DisplayFileName': False,
+        'DisplayFigureCaption': False,
         'DisplayTagVertically': False,
         # ----------------------------------------------------------------------------------------------
         'ReportTitle': '',

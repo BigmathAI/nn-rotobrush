@@ -2,6 +2,7 @@ from data_layer import data_layer_2d
 from config import FLAGS, TFCONFIG, logger
 from network import CENet
 from solver import solver_wrapper
+import pytoolkit.utils as pyutils
 
 import tensorflow as tf
 import os, cv2, time
@@ -21,7 +22,10 @@ def main():
         elif FLAGS.mode == 'finetune':
             sw.Finetune()
         elif FLAGS.mode == 'valid':
-            sw.Evaluate()
+            total_loss_vals = sw.Evaluate()
+            [logger.info(line) for line in pyutils.dict_to_string(total_loss_vals, 3)]
+        elif FLAGS.mode == 'findbest':
+            sw.FindBestModel()
 
 def test():
     dl_train = data_layer_2d(FLAGS, 'train')

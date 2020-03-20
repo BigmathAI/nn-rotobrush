@@ -2,8 +2,9 @@ from config import logger
 import pytoolkit.utils as pyutils
 import tensorflow as tf, os, time, numpy as np
 import pytoolkit.tf_funcs as tfx
+import pytoolkit.files as fp
 from easydict import EasyDict as edict
-import traceback, tqdm
+import traceback, tqdm, json
 import utils
 
 class solver_wrapper(object):
@@ -14,13 +15,17 @@ class solver_wrapper(object):
         self.sess = sess
         self.saver_all = tf.train.Saver(self.net.var.all_vars, max_to_keep=None)
 
-        self.summary_writer = tf.summary.FileWriter(self.FLAGS.tb_path, self.sess.graph)
+        self.summary_writer_train = tf.summary.FileWriter(os.path.join(self.FLAGS.tb_path, 'train'), self.sess.graph)
+        self.summary_writer_valid = tf.summary.FileWriter(os.path.join(self.FLAGS.tb_path, 'valid'), self.sess.graph)
 
         self.fname_temp_model = os.path.join(self.FLAGS.log_path, 'temp_model.ckpt')
         self.fdout_temp_image = os.path.join(self.FLAGS.output_path, 'temp')
         self.fdout_eval_image = os.path.join(self.FLAGS.output_path, 'valid_only')
         self.fdout_epch_image = os.path.join(self.FLAGS.output_path, 'Epoch{:03d}')
         self.fname_ckpt_model = os.path.join(self.FLAGS.log_path, 'phase_{}_model.ckpt')
+
+        self.fname_best_model = os.path.join(self.FLAGS.log_path, 'best_model.txt')
+        self.best_model_table = edict()
 
         self.pgrbar = pyutils.ProgressBar(self.FLAGS.epoches, 10)
 
@@ -29,6 +34,7 @@ class solver_wrapper(object):
 
     def Finetune(self):
         self.train_data.import_status()
+        self.restore_best_model()
         self.restore_from_checkpoint()
         self.train()
 
@@ -37,6 +43,39 @@ class solver_wrapper(object):
             self.restore_from_checkpoint()
         total_loss_vals = self.validate(epoch_id)
         return total_loss_vals
+
+    def FindBestModel(self):
+        fname_ckpt_orig = os.path.join(self.FLAGS.log_path, 'checkpoint')
+        fname_ckpt_backup = os.path.join(self.FLAGS.log_path, 'checkpoint-backup')
+        try:
+            cmd = 'cp {} {}'.format(fname_ckpt_orig, fname_ckpt_backup)
+            os.system(cmd)
+        except:
+            logger.warning('The original checkpoint file not backup-ed!')
+            return
+
+        try:
+            fname_ckpt_models = fp.dir(self.FLAGS.log_path, '.meta')
+            fname_ckpt_models = fname_ckpt_models[::-1]
+            for fname in fname_ckpt_models:
+                fname = fname.rstrip('.meta')
+                fname = fname.replace('\\', '/')
+                print(fname)
+                with open(fname_ckpt_orig, 'w') as f:
+                    f.write('model_checkpoint_path: "{}"\n'.format(fname))
+                    f.write('all_model_checkpoint_paths: "{}"\n'.format(fname))
+                eval_loss_vals = self.Evaluate()
+                [logger.info(line) for line in pyutils.dict_to_string(eval_loss_vals, 3)]
+                self.record_best_model(self.best_model_table, eval_loss_vals, fname)
+                print(fname + ' END')
+        except Exception as e:
+            traceback.print_exc()
+            cmd = 'cp {} {}'.format(fname_ckpt_backup, fname_ckpt_orig)
+            os.system(cmd)
+            logger.error('ERROR')
+        else:
+            cmd = 'cp {} {}'.format(fname_ckpt_backup, fname_ckpt_orig)
+            os.system(cmd)
 
     def train(self):
         saver = self.saver_all
@@ -94,10 +133,12 @@ class solver_wrapper(object):
                                              (time_cost_data, time_cost_optim))
 
             if status.iteration % 100 == 0:
-                pass#pyutils.print_params(logger, self.FLAGS)
-            if status.iteration % 5 == 0:
+                pyutils.print_params(logger, self.FLAGS)
+                os.system('nvidia-smi')
+            if status.iteration % 20 == 0:
                 utils.draw_ims(draw_vals, self.fdout_temp_image)
-                [self.summary_writer.add_summary(v, status.iteration) for _, v in smry_vals.items()]
+            if status.iteration % 5 == 0:
+                [self.summary_writer_train.add_summary(v, status.iteration) for _, v in smry_vals.items()]
             if status.iteration % 5 == 0 and os.path.exists('stop'):
                 raise ValueError('Stop file exists!!! Quit!!!')
             if train_data.status.epoch != status.epoch:
@@ -105,7 +146,8 @@ class solver_wrapper(object):
                 logger.info('Eval: Ph {:>12s}: {:6.4f}'.format(crt_phase, eval_loss_vals[crt_phase]))
                 [logger.info(line) for line in pyutils.dict_to_string(eval_loss_vals, 3)]
                 fname_ckpt_model = self.fname_ckpt_model.format(crt_phase)
-                saver.save(self.sess, fname_ckpt_model, status.epoch)
+                fname_ckpt_model = saver.save(self.sess, fname_ckpt_model, status.epoch)
+                self.record_best_model(self.best_model_table, eval_loss_vals, fname_ckpt_model)
                 self.pgrbar.Update(1)
                 logger.info('ENTIRE-PROGRESS: {}\n'.format(self.pgrbar.GetBar()))
 
@@ -134,14 +176,17 @@ class solver_wrapper(object):
             total_loss_vals = {k: total_loss_vals[k] + v * valid_len for k, v in loss_vals.items()}
             total_len += valid_len
 
-            utils.draw_ims(draw_vals, eval_path, status.iteration)
+            if epoch_id is not None and epoch_id % 5 == 0:
+                utils.draw_ims(draw_vals, eval_path, status.iteration)
             pbar.update(valid_len)
 
         total_loss_vals = {k: v / total_len for k, v in total_loss_vals.items()}
+        if epoch_id is not None:
+            self.write_validation_summary(total_loss_vals, epoch_id)
         return total_loss_vals
 
     def compute_crt_phase(self, status):
-        return 'celoss_im'
+        return 'wtd_celoss_im'
 
     def extract_data_and_build_feed_dict(self, data_layer):
         batch_tuple = data_layer.next_batch()
@@ -182,3 +227,37 @@ class solver_wrapper(object):
             if len(unmatched_vars) > 0:
                 logger.warning('The following vars contain no values in checkpoint file')
                 [logger.warning(v.op.name) for v in unmatched_vars]
+
+    def write_validation_summary(self, total_eval_losses, epoch_id):
+        feed_dict, valid_len = self.extract_data_and_build_feed_dict(self.valid_data)
+        for k, v in total_eval_losses.items():
+            feed_dict[self.net.phs_loss_valid[k + '_ph_loss_valid']] = v
+        feed_dict[self.net.ph_lr] = -1 # <== Indicate this is only for validation
+        smry_vals = self.sess.run(self.net.summary, feed_dict=feed_dict)
+        [self.summary_writer_valid.add_summary(v, self.train_data.status.iteration) for _, v in smry_vals.items()]
+
+    def record_best_model(self, best_model, total_eval_losses, path):
+        for k, v in total_eval_losses.items():
+            if k in best_model.keys():
+                if 'loss_im' in k:
+                    if v < best_model[k].val:
+                        best_model[k].path = path
+                        best_model[k].val = v
+                else:
+                    if v > best_model[k].val:
+                        best_model[k].path = path
+                        best_model[k].val = v
+            else:
+                best_model[k] = edict({
+                    'path':     path,
+                    'val':      v,
+                })
+        with open(self.fname_best_model, 'w') as f:
+            json.dump(best_model, f)
+
+    def restore_best_model(self):
+        try:
+            with open(self.fname_best_model, 'r') as f:
+                self.best_model_table = edict(json.load(f))
+        except:
+            logger.warning('No best model file found, will create new')

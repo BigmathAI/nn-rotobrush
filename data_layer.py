@@ -192,8 +192,31 @@ class data_layer_2d(data_layer_base):
         return data_layer_base.load_raw_from_npy(self, s, e)
 
     def prepare_data_to_feed(self, raw_data_batch):
-        dl_in_image = raw_data_batch[:,::2,::2,:3]
-        dl_gt_label = raw_data_batch[:,::2,::2,3]
+        N, H, W, C = raw_data_batch.shape
+        oH, oW = self.FLAGS.image_size
+        dl_in_image = np.zeros([N, oH, oW, 3], np.uint8)
+        dl_gt_label = np.zeros([N, oH, oW], np.uint8)
+
+        rH = (int(0.8 * H), int(0.99 * H) + 1)
+        rW = (int(0.8 * W), int(0.99 * W) + 1)
+
+        xH = np.random.randint(rH[0], rH[1])
+        xW = np.random.randint(rW[0], rW[1])
+        offset_y = np.random.randint(H - xH + 1)
+        offset_x = np.random.randint(W - xW + 1)
+
+        if self.phase == 'train':
+            raw_data_batch = raw_data_batch[:,offset_y:offset_y+xH,offset_x:offset_x+xW,:]
+            if np.random.randint(2) % 2 == 0:
+                raw_data_batch = raw_data_batch[:,::-1,:,:]
+            if np.random.randint(2) % 2 == 0:
+                raw_data_batch = raw_data_batch[:,:,::-1,:]
+
+        for k, datum in enumerate(raw_data_batch):
+            tmp = cv2.resize(datum, (oW, oH), interpolation=cv2.INTER_NEAREST)
+            dl_in_image[k] = tmp[:,:,:3]
+            dl_gt_label[k] = tmp[:,:,3]
+
         if len(dl_gt_label.shape) == 3:
             dl_gt_label = np.expand_dims(dl_gt_label, 3)
 
