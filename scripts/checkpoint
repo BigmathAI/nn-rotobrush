@@ -1,0 +1,2 @@
+model_checkpoint_path: "/data/results/totaltext-ce1/log/phase_celoss_im_model.ckpt-588"
+all_model_checkpoint_paths: "/data/results/totaltext-ce1/log/phase_celoss_im_model.ckpt-588"

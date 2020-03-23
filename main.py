@@ -26,6 +26,8 @@ def main():
             [logger.info(line) for line in pyutils.dict_to_string(total_loss_vals, 3)]
         elif FLAGS.mode == 'findbest':
             sw.FindBestModel()
+        else:
+            print('Do Nothing')
 
 def test():
     dl_train = data_layer_2d(FLAGS, 'train')

@@ -110,8 +110,8 @@ class CENet_Branch(object):
 
 
         # G-Net
-        self.rs_ou_image_train, self.layers = self.G_Net_2D_v2(self.ph_in_image, is_train=True, reuse=False)
-        self.rs_ou_image_valid, _           = self.G_Net_2D_v2(self.ph_in_image, is_train=False, reuse=True)
+        self.rs_ou_image_train, self.layers = self.G_Net_2D_v3(self.ph_in_image, is_train=True, reuse=False)
+        self.rs_ou_image_valid, _           = self.G_Net_2D_v3(self.ph_in_image, is_train=False, reuse=True)
 
         # Loss
         self.var    = self.collect_vars()
@@ -199,8 +199,32 @@ class CENet_Branch(object):
                 layers += [utils.conv_layer_2d(temp, chns[k], etas[k], kszs[k], stps[k],
                                                'l%02d' % k, dcvs[k], usbn[k], is_train, usrl[k])]
 
-            layers += [tf.slice(tf.nn.softmax(layers[-1]) * 2.0 - 1.0, [0, 0, 0, 1], [-1, -1, -1, 1], name='segmented')]
-            return layers[-1], layers
+    def G_Net_2D_v3(self, im, is_train, reuse):
+        with tf.variable_scope('generator_im', reuse=reuse) as scope:
+            layers = []
+            input = im
+            chns = [64] + [128] * 2 + [256] * 9 + [128] * 2 + [64, 32, 2]
+            chns = [x // 4 for x in chns[:-1]] + [chns[-1]]
+            etas = [1] * 6 + [2, 4, 8, 16] + [1] * 7
+            kszs = [5] + [3] * 11 + [4, 3, 4, 3, 3]
+            stps = [1, 2, 1, 2] + [1] * 8 + [2, 1, 2, 1, 1]
+            dcvs = [False] * 12 + [True, False, True, False, False]
+            usbn = [True] * 16 + [False]
+            usrl = usbn
+            for k in range(17):
+                if k == 0:
+                    temp = input
+                elif k < 9:
+                    temp = layers[-1]
+                elif k < 15:
+                    temp = tf.concat([layers[-1], layers[15 - k]], axis=3)
+                else:
+                    temp = layers[-1]
+                layers += [utils.conv_layer_2d(temp, chns[k], etas[k], kszs[k], stps[k],
+                                               'l%02d' % k, dcvs[k], usbn[k], is_train, usrl[k])]
+
+        layers += [tf.slice(tf.nn.softmax(layers[-1]) * 2.0 - 1.0, [0, 0, 0, 1], [-1, -1, -1, 1], name='segmented')]
+        return layers[-1], layers
 
     def collect_vars(self):
         t_vars   = [var for var in tf.trainable_variables() if 'VGG' not in var.name]
@@ -237,14 +261,15 @@ class CENet_Branch(object):
 
         wtd_ce_im, wt_im_datum = utils.compute_weighted_celoss(self.ph_datum_wt,
                                                                self.layers[-2],
-                                                               self.FLAGS.weight_ce,
-                                                               self.ph_gt_image, name='weighted_celoss_im')
+                                                               self.ph_gt_image,
+                                                               self.FLAGS.weight_ce, name='weighted_celoss_im')
 
         weight_decay = self.FLAGS.weight_decay * utils.compute_weight_decay(self.var['g_im_vars'])
 
         loss = edict({
             'l1loss_im':            l1_im,
             'celoss_im':            ce_im + weight_decay,
+            'wtdecay_loss_im':      weight_decay,
             'wtd_celoss_im':        wtd_ce_im + weight_decay,
             'precision':            P_R_IoU_FPR_F1_im[0],
             'recall':               P_R_IoU_FPR_F1_im[1],

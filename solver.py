@@ -55,9 +55,12 @@ class solver_wrapper(object):
             return
 
         try:
+            self.restore_best_model()
             fname_ckpt_models = fp.dir(self.FLAGS.log_path, '.meta')
             fname_ckpt_models = fname_ckpt_models[::-1]
             for fname in fname_ckpt_models:
+                if 'temp_model' in fname:
+                    continue
                 fname = fname.rstrip('.meta')
                 fname = fname.replace('\\', '/')
                 print(fname)
@@ -142,14 +145,15 @@ class solver_wrapper(object):
             if status.iteration % 5 == 0 and os.path.exists('stop'):
                 raise ValueError('Stop file exists!!! Quit!!!')
             if train_data.status.epoch != status.epoch:
-                eval_loss_vals = self.Evaluate(status.epoch)
-                logger.info('Eval: Ph {:>12s}: {:6.4f}'.format(crt_phase, eval_loss_vals[crt_phase]))
-                [logger.info(line) for line in pyutils.dict_to_string(eval_loss_vals, 3)]
-                fname_ckpt_model = self.fname_ckpt_model.format(crt_phase)
-                fname_ckpt_model = saver.save(self.sess, fname_ckpt_model, status.epoch)
-                self.record_best_model(self.best_model_table, eval_loss_vals, fname_ckpt_model)
-                self.pgrbar.Update(1)
-                logger.info('ENTIRE-PROGRESS: {}\n'.format(self.pgrbar.GetBar()))
+                if status.epoch % 5 == 0:
+                    eval_loss_vals = self.Evaluate(status.epoch)
+                    logger.info('Eval: Ph {:>12s}: {:6.4f}'.format(crt_phase, eval_loss_vals[crt_phase]))
+                    [logger.info(line) for line in pyutils.dict_to_string(eval_loss_vals, 3)]
+                    fname_ckpt_model = self.fname_ckpt_model.format(crt_phase)
+                    fname_ckpt_model = saver.save(self.sess, fname_ckpt_model, status.epoch)
+                    self.record_best_model(self.best_model_table, eval_loss_vals, fname_ckpt_model)
+                    self.pgrbar.Update(1)
+                    logger.info('ENTIRE-PROGRESS: {}\n'.format(self.pgrbar.GetBar()))
 
     def validate(self, epoch_id):
         valid_data = self.valid_data

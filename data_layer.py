@@ -197,8 +197,8 @@ class data_layer_2d(data_layer_base):
         dl_in_image = np.zeros([N, oH, oW, 3], np.uint8)
         dl_gt_label = np.zeros([N, oH, oW], np.uint8)
 
-        rH = (int(0.8 * H), int(0.99 * H) + 1)
-        rW = (int(0.8 * W), int(0.99 * W) + 1)
+        rH = (int(0.5 * H), int(0.99 * H) + 1)
+        rW = (int(0.5 * W), int(0.99 * W) + 1)
 
         xH = np.random.randint(rH[0], rH[1])
         xW = np.random.randint(rW[0], rW[1])
@@ -207,13 +207,22 @@ class data_layer_2d(data_layer_base):
 
         if self.phase == 'train':
             raw_data_batch = raw_data_batch[:,offset_y:offset_y+xH,offset_x:offset_x+xW,:]
-            if np.random.randint(2) % 2 == 0:
-                raw_data_batch = raw_data_batch[:,::-1,:,:]
-            if np.random.randint(2) % 2 == 0:
-                raw_data_batch = raw_data_batch[:,:,::-1,:]
+            #if np.random.randint(2) % 2 == 0:
+            #    raw_data_batch = raw_data_batch[:,::-1,:,:]
+            #if np.random.randint(2) % 2 == 0:
+            #    raw_data_batch = raw_data_batch[:,:,::-1,:]
+            #if np.random.randint(2) % 2 == 0:
+            #    raw_data_batch = raw_data_batch[:,:,:,list(np.random.permutation(3)) + [3]]
 
         for k, datum in enumerate(raw_data_batch):
             tmp = cv2.resize(datum, (oW, oH), interpolation=cv2.INTER_NEAREST)
+            if self.phase == 'train':
+                if np.random.randint(4) % 4 == 0:
+                    tmp = tmp[::-1,:]
+                if np.random.randint(2) % 2 == 0:
+                    tmp = tmp[:,::-1]
+                if np.random.randint(2) % 2 == 0:
+                    tmp = tmp[:,:,list(np.random.permutation(3)) + [3]]
             dl_in_image[k] = tmp[:,:,:3]
             dl_gt_label[k] = tmp[:,:,3]
 
