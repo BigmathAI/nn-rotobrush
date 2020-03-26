@@ -55,8 +55,8 @@ class solver_wrapper(object):
             return
 
         try:
-            self.restore_best_model()
-            fname_ckpt_models = fp.dir(self.FLAGS.log_path, '.meta')
+            #self.restore_best_model()
+            fname_ckpt_models = fp.dir(self.FLAGS.log_path, '.meta', case_sensitive=True)
             fname_ckpt_models = fname_ckpt_models[::-1]
             for fname in fname_ckpt_models:
                 if 'temp_model' in fname:
@@ -151,7 +151,11 @@ class solver_wrapper(object):
                     [logger.info(line) for line in pyutils.dict_to_string(eval_loss_vals, 3)]
                     fname_ckpt_model = self.fname_ckpt_model.format(crt_phase)
                     fname_ckpt_model = saver.save(self.sess, fname_ckpt_model, status.epoch)
-                    self.record_best_model(self.best_model_table, eval_loss_vals, fname_ckpt_model)
+                    need_to_save = self.record_best_model(self.best_model_table, eval_loss_vals, fname_ckpt_model)
+                    if not need_to_save:
+                        cmd = 'rm {}.*'.format(fname_ckpt_model)
+                        logger.warning('DELETE MODEL: ' + cmd)
+                        os.system(cmd)
                     self.pgrbar.Update(1)
                     logger.info('ENTIRE-PROGRESS: {}\n'.format(self.pgrbar.GetBar()))
 
@@ -180,8 +184,13 @@ class solver_wrapper(object):
             total_loss_vals = {k: total_loss_vals[k] + v * valid_len for k, v in loss_vals.items()}
             total_len += valid_len
 
-            if epoch_id is not None and epoch_id % 5 == 0:
+            #if epoch_id is not None and epoch_id % 5 == 0:
+            #    utils.draw_ims(draw_vals, eval_path, status.iteration)
+            if self.FLAGS.mode in ['train', 'finetune'] and epoch_id is not None and epoch_id % 5 == 0:
                 utils.draw_ims(draw_vals, eval_path, status.iteration)
+            elif self.FLAGS.mode == 'valid':
+                utils.draw_ims(draw_vals, eval_path, status.iteration)
+
             pbar.update(valid_len)
 
         total_loss_vals = {k: v / total_len for k, v in total_loss_vals.items()}
@@ -202,11 +211,15 @@ class solver_wrapper(object):
             batch_tuple = [np.concatenate([b, np.zeros([n, *b.shape[1:]], b.dtype)]) for b in batch_tuple]
             datum_wt = np.concatenate([datum_wt, np.zeros([n], datum_wt.dtype)])
 
+        lr = self.FLAGS.lr
+        if data_layer.status.iteration < 1e4:
+            lr *= 10
+
         feed_dict = {
             self.net.ph_in_image:           batch_tuple[0],
             self.net.ph_gt_image:           batch_tuple[1],
             self.net.ph_datum_wt:           datum_wt,
-            self.net.ph_lr:                 self.FLAGS.lr,
+            self.net.ph_lr:                 lr,
         }
         return feed_dict, valid_len
 
@@ -241,23 +254,28 @@ class solver_wrapper(object):
         [self.summary_writer_valid.add_summary(v, self.train_data.status.iteration) for _, v in smry_vals.items()]
 
     def record_best_model(self, best_model, total_eval_losses, path):
+        need_to_save = False
         for k, v in total_eval_losses.items():
             if k in best_model.keys():
                 if 'loss_im' in k:
                     if v < best_model[k].val:
                         best_model[k].path = path
                         best_model[k].val = v
+                        need_to_save = True
                 else:
                     if v > best_model[k].val:
                         best_model[k].path = path
                         best_model[k].val = v
+                        need_to_save = True
             else:
                 best_model[k] = edict({
                     'path':     path,
                     'val':      v,
                 })
+                need_to_save = True
         with open(self.fname_best_model, 'w') as f:
             json.dump(best_model, f)
+        return need_to_save
 
     def restore_best_model(self):
         try:

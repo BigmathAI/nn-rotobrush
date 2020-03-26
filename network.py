@@ -110,8 +110,8 @@ class CENet_Branch(object):
 
 
         # G-Net
-        self.rs_ou_image_train, self.layers = self.G_Net_2D_v3(self.ph_in_image, is_train=True, reuse=False)
-        self.rs_ou_image_valid, _           = self.G_Net_2D_v3(self.ph_in_image, is_train=False, reuse=True)
+        self.rs_ou_image_train, self.layers = self.G_Net_2D(self.ph_in_image, is_train=True, reuse=False)
+        self.rs_ou_image_valid, _           = self.G_Net_2D(self.ph_in_image, is_train=False, reuse=True)
 
         # Loss
         self.var    = self.collect_vars()
@@ -126,7 +126,7 @@ class CENet_Branch(object):
             'rs_ou_image_train':  utils.to_uint8_tensor(self.rs_ou_image_train),
         })
 
-    def G_Net_2D(self, im, is_train, reuse):
+    def G_Net_2D_v0(self, im, is_train, reuse):
         with tf.variable_scope('generator_im', reuse=reuse) as scope:
             layers = []
             input = im
@@ -149,6 +149,16 @@ class CENet_Branch(object):
                 layers += [utils.conv_layer_2d(temp, chns[k], etas[k], kszs[k], stps[k],
                                                'l%02d' % k, dcvs[k], usbn[k], is_train, usrl[k])]
             return tf.nn.tanh(layers[-1]), layers
+
+    def G_Net_2D(self, im, is_train, reuse):
+        if self.FLAGS.version == 'v1':
+            return self.G_Net_2D_v1(im, is_train, reuse)
+        elif self.FLAGS.version == 'v2':
+            return self.G_Net_2D_v2(im, is_train, reuse)
+        elif self.FLAGS.version == 'v3':
+            return self.G_Net_2D_v3(im, is_train, reuse)
+        elif self.FLAGS.version == 'v4':
+            return self.G_Net_2D_v4(im, is_train, reuse)
 
     def G_Net_2D_v1(self, im, is_train, reuse):
         with tf.variable_scope('generator_im', reuse=reuse) as scope:
@@ -198,6 +208,34 @@ class CENet_Branch(object):
                     temp = layers[-1]
                 layers += [utils.conv_layer_2d(temp, chns[k], etas[k], kszs[k], stps[k],
                                                'l%02d' % k, dcvs[k], usbn[k], is_train, usrl[k])]
+            layers += [tf.slice(tf.nn.softmax(layers[-1]) * 2.0 - 1.0, [0, 0, 0, 1], [-1, -1, -1, 1], name='segmented')]
+            return layers[-1], layers
+
+    def G_Net_2D_v4(self, im, is_train, reuse):
+        with tf.variable_scope('generator_im', reuse=reuse) as scope:
+            layers = []
+            input = im
+            chns = [64] + [128] * 2 + [256] * 9 + [128] * 2 + [64, 32, 2]
+            chns = [x // 2 for x in chns[:-1]] + [chns[-1]]
+            etas = [1] * 6 + [2, 4, 8, 16] + [1] * 7
+            kszs = [5] + [3] * 11 + [4, 3, 4, 3, 3]
+            stps = [1, 2, 1, 2] + [1] * 8 + [2, 1, 2, 1, 1]
+            dcvs = [False] * 12 + [True, False, True, False, False]
+            usbn = [True] * 16 + [False]
+            usrl = usbn
+            for k in range(17):
+                if k == 0:
+                    temp = input
+                elif k < 9:
+                    temp = layers[-1]
+                elif k < 15:
+                    temp = tf.concat([layers[-1], layers[15 - k]], axis=3)
+                else:
+                    temp = layers[-1]
+                layers += [utils.conv_layer_2d(temp, chns[k], etas[k], kszs[k], stps[k],
+                                               'l%02d' % k, dcvs[k], usbn[k], is_train, usrl[k])]
+            layers += [tf.slice(tf.nn.softmax(layers[-1]) * 2.0 - 1.0, [0, 0, 0, 1], [-1, -1, -1, 1], name='segmented')]
+            return layers[-1], layers
 
     def G_Net_2D_v3(self, im, is_train, reuse):
         with tf.variable_scope('generator_im', reuse=reuse) as scope:
@@ -227,6 +265,7 @@ class CENet_Branch(object):
         return layers[-1], layers
 
     def collect_vars(self):
+        all_vars = [var for var in tf.all_variables() if 'VGG' not in var.name]
         t_vars   = [var for var in tf.trainable_variables() if 'VGG' not in var.name]
         vgg_vars = [var for var in tf.trainable_variables() if 'VGG' in var.name]
 
@@ -237,7 +276,8 @@ class CENet_Branch(object):
         assert len(t_vars) + len(vgg_vars) == len(tf.trainable_variables()), 'vars number inconsistent! (2)'
 
         var = edict({
-            'all_vars':  t_vars,
+            'all_vars':  all_vars,
+            't_vars':    t_vars,
             'g_im_vars': g_vars_im,
             'd_im_vars': d_vars_im,
             'vgg_vars':  vgg_vars

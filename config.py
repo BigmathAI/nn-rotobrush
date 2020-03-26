@@ -5,10 +5,11 @@ import tensorflow as tf
 import platform
 
 def INIT_EXP_ENV(FLAGS, TFCONFIG):
-    fd = '{}_[lr_{:3.1e}]_[weight_ce_{:>04.2f}]_[weight_decay_{:>06.4f}]'.format(FLAGS.exp_id,
-                                                                                 FLAGS.lr,
-                                                                                 FLAGS.weight_ce,
-                                                                                 FLAGS.weight_decay)
+    #fd = '{}_[lr_{:3.1e}]_[weight_ce_{:>04.2f}]_[weight_decay_{:>06.4f}]'.format(FLAGS.exp_id,
+    #                                                                             FLAGS.lr,
+    #                                                                             FLAGS.weight_ce,
+    #                                                                             FLAGS.weight_decay)
+    fd = '{}'.format(FLAGS.exp_id)
     FLAGS.result_path = os.path.join(FLAGS.result_path, fd)
     fp.mkdir(FLAGS.result_path)
     tmp = ['log', 'output', 'figures', 'tb']
@@ -32,6 +33,8 @@ tf.flags.DEFINE_float('weight_decay',                   1e-3,       'weight deca
 tf.flags.DEFINE_float('weight_ce',                      0.7,        'weight ce, range: [0,1)')
 tf.flags.DEFINE_float('lr',                             1e-5,       'learning rate')
 
+tf.flags.DEFINE_string('version',                       'v4',       'version')
+
 tf.flags.DEFINE_string('mode',                          'finetune', 'train, valid, finetune, or findbest')
 
 if platform.system() == 'Windows':
@@ -40,9 +43,9 @@ else:
     tf.flags.DEFINE_string('data_path',                 r'/data/totaltext', '')
 
 if platform.system() == 'Windows':
-    tf.flags.DEFINE_string('result_path',               r'F:\text-seg\results\totaltext-ce', '')
+    tf.flags.DEFINE_string('result_path',               r'F:\text-seg\results\totaltext-ce4', '')
 else:
-    tf.flags.DEFINE_string('result_path',               r'/data/results/totaltext-ce3', '')
+    tf.flags.DEFINE_string('result_path',               r'/data/results/totaltext-ce4', '')
 
 tf.flags.DEFINE_integer('NUM_THREADS',                  8,          '')
 tf.flags.DEFINE_bool('USE_MULTI_THREADS',               True,       '')

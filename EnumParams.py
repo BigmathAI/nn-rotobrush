@@ -4,32 +4,52 @@ class EnumParams(object):
     def __init__(self, param_pool_dict):
         self.param_pool_dict = param_pool_dict
         self.fname_batch_run = os.path.join('./', 'batch_run.sh')
-        self.basic_cmd = 'rlaunch --cpu=1 --gpu=1 --memory=10240 -- python3 main.py ' \
-                         '--num_gpus=1 --batch_size=16 --epoches=4000 --eval_nums=-1'
+        self.basic_cmd = 'rlaunch --cpu=1 --gpu=8 --memory=10240 -- python3 main.py ' \
+                         '--num_gpus=8 --batch_size=16 --epoches=4000 --eval_nums=2'
 
-    def dfs(self, option, options, param_pool_dict, k):
+        #self.basic_cmd = 'echo hw'
+
+    def dfs(self, option, options, param_pool_dict, k, id):
         if k == len(param_pool_dict):
+            option += '--exp_id={}'.format(id)
             options.append(option)
             return
         keys = list(param_pool_dict.keys())
         key = keys[k]
-        for val in param_pool_dict[key]:
+        for t, val in enumerate(param_pool_dict[key]):
             orig_len = len(option)
-            option += '--{}={:>3.1e} '.format(key, val)
-            self.dfs(option, options, param_pool_dict, k + 1)
+            if type(val) == str:
+                option += '--{}={} '.format(key, val)
+            else:
+                option += '--{}={:>3.1e} '.format(key, val)
+            self.dfs(option, options, param_pool_dict, k + 1, id + str(t))
             option = option[:orig_len]
 
     def GenBatchFile(self):
         fname = self.fname_batch_run
         option = ''
         options = []
-        self.dfs(option, options, self.param_pool_dict, 0)
+        self.dfs(option, options, self.param_pool_dict, 0, 'ID')
         with open(fname, 'w') as f:
-            for k, line in enumerate(options):
-                session_name = 'ID{:03d}'.format(k)
-                f.write('tmux new-session -d -s {} \; send-keys "{} --exp_id={} {}" Enter\n'.format(session_name,
-                                                                                                    self.basic_cmd,
-                                                                                                    session_name, line))
+            if False:
+                for k, line in enumerate(options):
+                    session_name = line.split('--exp_id=')[-1]
+                    f.write('tmux new-session -d -s {} \; send-keys "{} {}" Enter\n'.format(session_name,
+                                                                                            self.basic_cmd,
+                                                                                            line))
+            else:
+                session_name = 'SESS'
+                #f.write('tmux kill-server\n')
+                for k, line in enumerate(options):
+                    window_name = line.split('--exp_id=')[-1]
+                    if k == 0:
+                        f.write('tmux new-session -d -s {} -n {} \; send-keys "{} {}" Enter\n'.format(session_name,
+                                                                                                window_name,
+                                                                                                self.basic_cmd, line))
+                    else:
+                        f.write('tmux new-window -t {}:{:d} -n {} \; send-keys "{} {}" Enter\n'.format(session_name,
+                                                                                                 k, window_name,
+                                                                                                 self.basic_cmd, line))
 
     def Run(self):
         cmd = 'sh {}'.format(self.fname_batch_run)
@@ -38,9 +58,10 @@ class EnumParams(object):
 
 def main():
     param_pool_dict = {
-        'lr':                   [1e-5, 1e-4, 1e-3],
-        'weight_ce':            [0.4, 0.5, 0.6, 0.7],
-        'weight_decay':         [1e-3, 1e-2, 1e-4],
+        'lr':                   [1e-4, ],
+        'weight_ce':            [0.5,  ],
+        'weight_decay':         [1e-4, ],
+        'version':              ['v2', 'v3', 'v4'],
     }
     ep = EnumParams(param_pool_dict)
     ep.GenBatchFile()
