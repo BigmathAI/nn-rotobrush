@@ -105,6 +105,8 @@ def get_valid_batch(batch, valid_len, name):
     out = tf.slice(batch, [0] * ndims, [valid_len] + [-1] * (ndims - 1), name=name)
     return out
 
+
+
 #-----------------------------------------------------------------------------------------------------------------------
 def draw_ims(draw_vals, fdout, batch_id=0):
     title_to_path = {}

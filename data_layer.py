@@ -1,7 +1,8 @@
 import pytoolkit.files as fp, pytoolkit.utils as pyutils
-import numpy as np, cv2, os, json, random, math, logging, time
+import numpy as np, cv2, os, json, random, math, logging, time, tqdm, psutil
 from easydict import EasyDict as edict
 from config import FLAGS, logger
+from functools import lru_cache
 
 class data_layer_base(object):
     def __init__(self, FLAGS, phase):
@@ -30,12 +31,18 @@ class data_layer_base(object):
 
     def preload(self, fd_npy):
         fnames_npy = fp.dir(fd_npy, '.npy')
-        data_npy = [np.load(f, 'r') for f in fnames_npy]
+        data_npy = [np.load(fname, 'r') for fname in fnames_npy]
+        Process = psutil.Process(os.getpid())
+        #tr = tqdm.trange(len(fnames_npy), desc='Memory Cost', leave=True)
+        #for d in data_npy:
+        #    logger.info(d.shape)
         Ns = [d.shape[0] for d in data_npy]
         N = sum(Ns)
         return N, data_npy, data_npy[0].shape[1:]
 
     def build_index_map(self, data_npy):
+        #import ipdb
+        #ipdb.set_trace()
         Ns = [d.shape[0] for d in data_npy]
         N = sum(Ns)
         index_map = np.zeros([N, 2], np.int32)
@@ -63,15 +70,21 @@ class data_layer_base(object):
         raise NotImplementedError('This is an Abstract method, Must be implemented by the subclass.')
 
     def load_raw_from_npy(self, s, e):
+        tic = time.time()
         def FUNC_COPY_DATA(data_batch, sample_ids, index_map, data_npy, data_range):
+            @lru_cache(maxsize=None)
+            def lru_cached_data(sample_id):
+                fid, datum_id = index_map[sample_id]
+                raw_datum = data_npy[fid][datum_id]
+                return raw_datum
             s, e = data_range
             for k in range(s, e):
                 sample_id = sample_ids[k]
-                fid, datum_id = index_map[sample_id]
-                raw_datum = data_npy[fid][datum_id]
-                data_batch[k] = raw_datum
+                #fid, datum_id = index_map[sample_id]
+                #raw_datum = data_npy[fid][datum_id]
+                data_batch[k] = lru_cached_data(sample_id)#raw_datum
         data_batch = np.zeros([e - s] + list(self.shape), np.uint8)
-        if self.FLAGS.USE_MULTI_THREADS is True:
+        if False and self.FLAGS.USE_MULTI_THREADS is True:
             sample_ids = self.curr_data_indices[s:e]
             FUNC_ARGS = [data_batch, sample_ids, self.index_map, self.data_npy, None]
             pyutils.do_multi_threads(e - s, self.FLAGS.NUM_THREADS, FUNC_COPY_DATA, FUNC_ARGS)
@@ -81,6 +94,8 @@ class data_layer_base(object):
                 fid, datum_id = self.index_map[sample_id]
                 raw_datum = self.data_npy[fid][datum_id]
                 data_batch[i - s] = raw_datum
+        toc = time.time()
+        #print('LOAD: %f' % (toc - tic))
         return data_batch
 
     def init_status(self):
@@ -192,6 +207,7 @@ class data_layer_2d(data_layer_base):
         return data_layer_base.load_raw_from_npy(self, s, e)
 
     def prepare_data_to_feed(self, raw_data_batch):
+        tic = time.time()
         N, H, W, C = raw_data_batch.shape
         oH, oW = self.FLAGS.image_size
         dl_in_image = np.zeros([N, oH, oW, 3], np.uint8)
@@ -205,28 +221,51 @@ class data_layer_2d(data_layer_base):
         offset_y = np.random.randint(H - xH + 1)
         offset_x = np.random.randint(W - xW + 1)
 
-        if self.phase == 'train':
-            raw_data_batch = raw_data_batch[:,offset_y:offset_y+xH,offset_x:offset_x+xW,:]
-            #if np.random.randint(2) % 2 == 0:
-            #    raw_data_batch = raw_data_batch[:,::-1,:,:]
-            #if np.random.randint(2) % 2 == 0:
-            #    raw_data_batch = raw_data_batch[:,:,::-1,:]
-            #if np.random.randint(2) % 2 == 0:
-            #    raw_data_batch = raw_data_batch[:,:,:,list(np.random.permutation(3)) + [3]]
+        def FUNC_EXTRACT_DATA(dl_in_image, dl_gt_label, raw_data_batch, new_size, offsets, data_range):
+            s, e = data_range
+            offset_y, offset_x, xH, xW = offsets
+            for k in range(s, e):
+                datum = raw_data_batch[k]
+                if self.phase == 'train':
+                    datum = datum[offset_y:offset_y + xH, offset_x:offset_x + xW]
+                tmp = cv2.resize(datum, new_size, interpolation=cv2.INTER_NEAREST)
+                if self.phase == 'train':
+                    if np.random.randint(4) % 4 == 0:
+                        tmp = tmp[::-1,:]
+                    if np.random.randint(2) % 2 == 0:
+                        tmp = tmp[:,::-1]
+                dl_in_image[k] = tmp[:,:,:3]
+                dl_gt_label[k] = tmp[:,:,3]
 
-        for k, datum in enumerate(raw_data_batch):
-            tmp = cv2.resize(datum, (oW, oH), interpolation=cv2.INTER_NEAREST)
+        if self.FLAGS.USE_MULTI_THREADS is True:
+            FUNC_ARGS = [dl_in_image, dl_gt_label, raw_data_batch, (oW, oH), (offset_y, offset_x, xH, xW), None]
+            pyutils.do_multi_threads(N, self.FLAGS.NUM_THREADS, FUNC_EXTRACT_DATA, FUNC_ARGS)
+        else:
             if self.phase == 'train':
-                if np.random.randint(4) % 4 == 0:
-                    tmp = tmp[::-1,:]
-                if np.random.randint(2) % 2 == 0:
-                    tmp = tmp[:,::-1]
-                if np.random.randint(2) % 2 == 0:
-                    tmp = tmp[:,:,list(np.random.permutation(3)) + [3]]
-            dl_in_image[k] = tmp[:,:,:3]
-            dl_gt_label[k] = tmp[:,:,3]
+                raw_data_batch = raw_data_batch[:, offset_y:offset_y + xH, offset_x:offset_x + xW, :]
+                # if np.random.randint(2) % 2 == 0:
+                #    raw_data_batch = raw_data_batch[:,::-1,:,:]
+                # if np.random.randint(2) % 2 == 0:
+                #    raw_data_batch = raw_data_batch[:,:,::-1,:]
+                # if np.random.randint(2) % 2 == 0:
+                #    raw_data_batch = raw_data_batch[:,:,:,list(np.random.permutation(3)) + [3]]
+
+            for k, datum in enumerate(raw_data_batch):
+                tmp = cv2.resize(datum, (oW, oH), interpolation=cv2.INTER_NEAREST)
+                if self.phase == 'train':
+                    if np.random.randint(4) % 4 == 0:
+                        tmp = tmp[::-1,:]
+                    if np.random.randint(2) % 2 == 0:
+                        tmp = tmp[:,::-1]
+                    #if np.random.randint(2) % 2 == 0:
+                    #    tmp = tmp[:,:,list(np.random.permutation(3)) + [3]]
+                dl_in_image[k] = tmp[:,:,:3]
+                dl_gt_label[k] = tmp[:,:,3]
 
         if len(dl_gt_label.shape) == 3:
             dl_gt_label = np.expand_dims(dl_gt_label, 3)
+
+        toc = time.time()
+        #print('COST: %f' % (toc - tic))
 
         return (dl_in_image, dl_gt_label)

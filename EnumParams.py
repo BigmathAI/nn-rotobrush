@@ -4,8 +4,8 @@ class EnumParams(object):
     def __init__(self, param_pool_dict):
         self.param_pool_dict = param_pool_dict
         self.fname_batch_run = os.path.join('./', 'batch_run.sh')
-        self.basic_cmd = 'rlaunch --cpu=1 --gpu=8 --memory=10240 -- python3 main.py ' \
-                         '--num_gpus=8 --batch_size=16 --epoches=4000 --eval_nums=2'
+        self.basic_cmd = 'rlaunch --cpu=8 --gpu=8 --memory=30720 -- python3 main.py ' \
+                         '--num_gpus=8 --batch_size=6 --epoches=4000 --mode=finetune --eval_nums=-1'
 
         #self.basic_cmd = 'echo hw'
 
@@ -60,8 +60,8 @@ def main():
     param_pool_dict = {
         'lr':                   [1e-4, ],
         'weight_ce':            [0.5,  ],
-        'weight_decay':         [1e-4, ],
-        'version':              ['v2', 'v3', 'v4'],
+        'weight_decay':         [1e-4, 1e-3, 1e-5],
+        'version':              ['v4'],
     }
     ep = EnumParams(param_pool_dict)
     ep.GenBatchFile()

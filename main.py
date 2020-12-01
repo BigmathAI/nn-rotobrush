@@ -30,13 +30,27 @@ def main():
             print('Do Nothing')
 
 def test():
-    dl_train = data_layer_2d(FLAGS, 'train')
-    for t in range(1000):
-        tic = time.time()
-        rst = dl_train.next_batch()
-        toc = time.time()
-        print(rst[0].shape, toc - tic)
+    FLAGS.num_gpus = 1
+    FLAGS.batch_size = 1
+    dl_valid = data_layer_2d(FLAGS, 'valid')
+    k = 0
+    while dl_valid.status.epoch < 1:
+        rst = dl_valid.next_batch()
+        im = rst[0][0]
+        print(im.shape)
+        cv2.imwrite('%05d.jpg' % k, im)
+        k += 1
+
+def debug():
+    net = CENet(FLAGS)
+    fname_meta = 'F:\\results\\rotobrush-0430\\XXXXX\\log\\temp_model.ckpt-0.meta'
+    fname_ckpt = 'F:\\results\\rotobrush-0430\\XXXXX\\log\\temp_model.ckpt-0'
+    with tf.Session(config=TFCONFIG) as sess:
+        init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
+        sess.run(init_op)
+        saver = tf.train.Saver(net.var.all_vars, max_to_keep=None)
+        saver.restore(sess, fname_ckpt)
 
 if __name__ == '__main__':
     logger.info('Start Program: ...')
-    main()
+    debug()

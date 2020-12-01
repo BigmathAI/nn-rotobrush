@@ -4,7 +4,7 @@ import tensorflow as tf, os, time, numpy as np
 import pytoolkit.tf_funcs as tfx
 import pytoolkit.files as fp
 from easydict import EasyDict as edict
-import traceback, tqdm, json
+import traceback, tqdm, json, psutil, ipdb
 import utils
 
 class solver_wrapper(object):
@@ -135,29 +135,37 @@ class solver_wrapper(object):
                                              train_data.prgbar, loss_vals,
                                              (time_cost_data, time_cost_optim))
 
+            from tensorflow.python.framework.graph_util import convert_variables_to_constants
+            #tmp = self.sess.graph_def
+            #with open('debug.node.txt', 'w') as f:
+            #    for x in tmp.node:
+            #        f.write(x.name + '\n')
+            #ipdb.set_trace()
+            graph = convert_variables_to_constants(self.sess, self.sess.graph_def, ['cpu_variables/generator_im/segmented'])
+            tf.train.write_graph(graph, 'models', 'model.pb', as_text=False)
+
             if status.iteration % 100 == 0:
                 pyutils.print_params(logger, self.FLAGS)
                 os.system('nvidia-smi')
-            if status.iteration % 20 == 0:
+            if status.iteration % 100 == 0:
                 utils.draw_ims(draw_vals, self.fdout_temp_image)
             if status.iteration % 5 == 0:
                 [self.summary_writer_train.add_summary(v, status.iteration) for _, v in smry_vals.items()]
             if status.iteration % 5 == 0 and os.path.exists('stop'):
                 raise ValueError('Stop file exists!!! Quit!!!')
-            if train_data.status.epoch != status.epoch:
-                if status.epoch % 5 == 0:
-                    eval_loss_vals = self.Evaluate(status.epoch)
-                    logger.info('Eval: Ph {:>12s}: {:6.4f}'.format(crt_phase, eval_loss_vals[crt_phase]))
-                    [logger.info(line) for line in pyutils.dict_to_string(eval_loss_vals, 3)]
-                    fname_ckpt_model = self.fname_ckpt_model.format(crt_phase)
-                    fname_ckpt_model = saver.save(self.sess, fname_ckpt_model, status.epoch)
-                    need_to_save = self.record_best_model(self.best_model_table, eval_loss_vals, fname_ckpt_model)
-                    if not need_to_save:
-                        cmd = 'rm {}.*'.format(fname_ckpt_model)
-                        logger.warning('DELETE MODEL: ' + cmd)
-                        os.system(cmd)
-                    self.pgrbar.Update(1)
-                    logger.info('ENTIRE-PROGRESS: {}\n'.format(self.pgrbar.GetBar()))
+            if train_data.status.epoch != status.epoch and status.epoch % 5 == 0:
+                eval_loss_vals = self.Evaluate(status.epoch)
+                logger.info('Eval: Ph {:>12s}: {:6.4f}'.format(crt_phase, eval_loss_vals[crt_phase]))
+                [logger.info(line) for line in pyutils.dict_to_string(eval_loss_vals, 3)]
+                fname_ckpt_model = self.fname_ckpt_model.format(crt_phase)
+                fname_ckpt_model = saver.save(self.sess, fname_ckpt_model, status.epoch)
+                need_to_save = self.record_best_model(self.best_model_table, eval_loss_vals, fname_ckpt_model)
+                if not need_to_save:
+                    cmd = 'rm {}.*'.format(fname_ckpt_model)
+                    logger.warning('DELETE MODEL: ' + cmd)
+                    os.system(cmd)
+                self.pgrbar.Update(1)
+                logger.info('ENTIRE-PROGRESS: {}\n'.format(self.pgrbar.GetBar()))
 
     def validate(self, epoch_id):
         valid_data = self.valid_data
@@ -199,7 +207,7 @@ class solver_wrapper(object):
         return total_loss_vals
 
     def compute_crt_phase(self, status):
-        return 'wtd_celoss_im'
+        return 'celoss_im'
 
     def extract_data_and_build_feed_dict(self, data_layer):
         batch_tuple = data_layer.next_batch()
@@ -208,7 +216,7 @@ class solver_wrapper(object):
         datum_wt = np.ones([valid_len], np.float32)
         if valid_len != data_layer.BS:
             n = data_layer.BS - valid_len
-            batch_tuple = [np.concatenate([b, np.zeros([n, *b.shape[1:]], b.dtype)]) for b in batch_tuple]
+            batch_tuple = [np.concatenate([b] + [b[-1:]] * n) for b in batch_tuple]
             datum_wt = np.concatenate([datum_wt, np.zeros([n], datum_wt.dtype)])
 
         lr = self.FLAGS.lr

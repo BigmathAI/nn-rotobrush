@@ -169,7 +169,11 @@ def restore_from_checkpoint(sess, ckpt_path, net_vars):
                 matched_vars.append(var)
             else:
                 unmatched_vars.append(var)
+        #import ipdb
+        #ipdb.set_trace()
+        #saver = tf.train.import_meta_graph(ckpt.model_checkpoint_path + '.meta')
         saver = tf.train.Saver(matched_vars)
+        #print(ckpt.model_checkpoint_path)
         saver.restore(sess, ckpt.model_checkpoint_path)
         return ckpt.model_checkpoint_path, matched_vars, unmatched_vars
     else:

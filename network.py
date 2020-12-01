@@ -296,7 +296,7 @@ class CENet_Branch(object):
                                                   self.ph_gt_image, name='celoss_im')
 
         P_R_IoU_FPR_F1_im, _ = utils.compute_IoU(self.ph_datum_wt,
-                                                 self.rs_ou_image_train,
+                                                 self.rs_ou_image_valid,
                                                  self.ph_gt_image, 0, name='seg_eval_im')
 
         wtd_ce_im, wt_im_datum = utils.compute_weighted_celoss(self.ph_datum_wt,
